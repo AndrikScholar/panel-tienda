@@ -94,6 +94,7 @@ table.t{width:100%;border-collapse:collapse}
 .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;font-size:12.5px;font-weight:700;white-space:nowrap}
 .pill .dots{display:inline-flex;gap:2px}.pill .dots i{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.28}.pill .dots i.on{opacity:1}
 .e0{background:var(--neutral-bg);color:var(--muted)}.e1{background:var(--warn-bg);color:var(--warn)}.e2{background:var(--info-bg);color:var(--info)}.e3{background:var(--good-bg);color:var(--good)}.e4{background:var(--sunken);color:var(--ink)}
+.ec{background:var(--bad-bg);color:var(--bad)}
 .due-bad{color:var(--bad);font-weight:700}.due-warn{color:var(--warn);font-weight:700}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
@@ -240,6 +241,7 @@ const ic=(n,c="ic")=>`<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="
 
 /* ---------- estado ---------- */
 const ESTADOS=["Cotizado","Anticipo pagado","En proceso","Listo","Entregado"];
+const CANC="Cancelado";
 const COLS=["clientes","productos","pedidos","cotizaciones","movimientos"];
 const DEF={nombre:"Mi Tienda",duena:"",lema:"Esto es lo que tienes pendiente hoy.",acento:"rosa",tarifaHora:80,margen:40,diasUrgente:3,logo:""};
 const S={clientes:[],productos:[],pedidos:[],cotizaciones:[],movimientos:[],config:{...DEF}};
@@ -249,8 +251,8 @@ let CALC=null,calcMounted=false,view="dashboard",modalRefresh=null,busy=false;
 const NAV=[["dashboard","Dashboard","dash"],["pedidos","Pedidos","bag"],["clientes","Clientes","users"],["cotizaciones","Cotizaciones","doc"],["catalogo","Catálogo","book"],["calculadora","Calculadora de precios","calc"],["finanzas","Finanzas","cash"],["configuracion","Configuración","gear"]];
 
 const pagado=p=>sum(p.pagos||[],x=>x.monto);
-const saldo=p=>Math.max(0,r2((p.total||0)-pagado(p)));
-const confirmado=p=>p.estado!=="Cotizado";
+const saldo=p=>p.estado===CANC?0:Math.max(0,r2((p.total||0)-pagado(p)));
+const confirmado=p=>p.estado!=="Cotizado"&&p.estado!==CANC;
 const activo=p=>confirmado(p)&&p.estado!=="Entregado";
 const urgente=p=>activo(p)&&p.entrega&&diff(p.entrega,today())<=(+S.config.diasUrgente||0);
 const cliente=id=>S.clientes.find(c=>c.id===id);
@@ -266,8 +268,8 @@ async function put(col,id,data){const {id:_,...rest}=data;const nid=id||newId();
 async function del(col,id){const {error}=await sb.from("documentos").delete().match({owner:uid,coleccion:col,id});if(error)throw error;S[col]=S[col].filter(x=>x.id!==id);schedule()}
 
 /* ---------- piezas ---------- */
-function pill(e){const i=ESTADOS.indexOf(e);return `<span class="pill e${i}"><span class="dots" aria-hidden="true">${ESTADOS.map((_,k)=>`<i class="${k<=i?"on":""}"></i>`).join("")}</span>${esc(e)}</span>`}
-function dueLabel(p){if(!p.entrega)return '<span class="sub">Sin fecha</span>';if(p.estado==="Entregado")return `<span class="sub">${fdate(p.entrega)}</span>`;const d=diff(p.entrega,today());let t=d<0?`Atrasado ${-d} d`:d===0?"Hoy":d===1?"Mañana":`En ${d} días`;const c=d<=0?"due-bad":d<=(+S.config.diasUrgente||0)?"due-warn":"sub";return `<span class="${c}">${t}</span> <span class="sub">· ${fdate(p.entrega)}</span>`}
+function pill(e){if(e===CANC)return `<span class="pill ec">✕ Cancelado</span>`;const i=ESTADOS.indexOf(e);return `<span class="pill e${i}"><span class="dots" aria-hidden="true">${ESTADOS.map((_,k)=>`<i class="${k<=i?"on":""}"></i>`).join("")}</span>${esc(e)}</span>`}
+function dueLabel(p){if(!p.entrega)return '<span class="sub">Sin fecha</span>';if(p.estado==="Entregado"||p.estado===CANC)return `<span class="sub">${fdate(p.entrega)}</span>`;const d=diff(p.entrega,today());let t=d<0?`Atrasado ${-d} d`:d===0?"Hoy":d===1?"Mañana":`En ${d} días`;const c=d<=0?"due-bad":d<=(+S.config.diasUrgente||0)?"due-warn":"sub";return `<span class="${c}">${t}</span> <span class="sub">· ${fdate(p.entrega)}</span>`}
 const empty=(t,s)=>`<div class="empty"><b>${t}</b>${s}</div>`;
 function pedidosTable(list){return `<div class="scroll"><table class="t cards"><thead><tr><th>Pedido</th><th>Cliente</th><th>Estado</th><th>Entrega</th><th class="num">Total</th><th class="num">Saldo</th></tr></thead><tbody>${list.map(p=>`<tr data-act="pedido" data-id="${esc(p.id)}" tabindex="0"><td class="lead">${esc(p.folio)}</td><td data-l="Cliente">${esc(cNombre(p.clienteId))}</td><td data-l="Estado">${pill(p.estado)}</td><td data-l="Entrega"><span>${dueLabel(p)}</span></td><td data-l="Total" class="num">${money(p.total)}</td><td data-l="Saldo" class="num">${money(saldo(p))}</td></tr>`).join("")}</tbody></table></div>`}
 
@@ -279,7 +281,7 @@ V.dashboard=()=>{
  const rec=[...P].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")||(b.folio||"").localeCompare(a.folio||"")).slice(0,6);
  const prox=[...urg].sort((a,b)=>a.entrega.localeCompare(b.entrega)).slice(0,5);
  return `<div class="head"><div><h1>¡Hola${S.config.duena?", "+esc(S.config.duena):""}!</h1><p>${esc(S.config.lema)}</p></div><button class="btn pri" data-act="nuevo-pedido">Nuevo pedido</button></div>
- <div class="tiles">
+ ${notaRespaldo()}<div class="tiles">
   <a class="tile teal" href="#pedidos" data-act="filtro" data-f="activos"><span>Pedidos activos ${ic("bag")}</span><b>${act.length}</b></a>
   <a class="tile dark" href="#pedidos" data-act="filtro" data-f="urgentes"><span>Urgentes por entregar ${ic("clock")}</span><b>${urg.length}</b></a>
   <a class="tile green" href="#finanzas"><span>Ventas totales ${ic("cash")}</span><b>${money(ventas)}</b></a>
@@ -293,13 +295,13 @@ V.dashboard=()=>{
  </div>`};
 function semanas(){const t=parse(today());const dow=(t.getDay()+6)%7;const lun=iso(new Date(t.getFullYear(),t.getMonth(),t.getDate()-dow));const out=[];for(let i=11;i>=0;i--){const ini=addDays(lun,-7*i),fin=addDays(ini,6);out.push({ini,fin,v:r2(sum(S.pedidos.filter(p=>confirmado(p)&&p.fecha>=ini&&p.fecha<=fin),p=>p.total))})}return out}
 
-V.pedidos=()=>{const c=[["activos","Activos"],["urgentes","Urgentes"],["porcobrar","Por cobrar"],...ESTADOS.map(e=>[e,e]),["todos","Todos"]];
+V.pedidos=()=>{const c=[["activos","Activos"],["urgentes","Urgentes"],["porcobrar","Por cobrar"],...ESTADOS.map(e=>[e,e]),[CANC,CANC],["todos","Todos"]];
  return `<div class="head"><div><h1>Pedidos</h1><p>Toca un pedido para cambiar su estado o registrar un pago.</p></div><button class="btn pri" data-act="nuevo-pedido">Nuevo pedido</button></div>
  <div class="toolbar"><input class="search" id="q-pedidos" type="search" placeholder="Buscar por folio o cliente" aria-label="Buscar pedidos" value="${esc(F.pedidos.q)}" data-q="pedidos"><div class="chips">${c.map(([k,l])=>`<button class="chip" data-act="filtro" data-f="${esc(k)}" aria-pressed="${F.pedidos.estado===k}">${esc(l)}</button>`).join("")}</div></div>
  <section class="card" id="lista"></section>`};
 function listaPedidos(){const f=F.pedidos,q=f.q.toLowerCase();let L=S.pedidos.filter(p=>f.estado==="todos"||(f.estado==="activos"?activo(p):f.estado==="urgentes"?urgente(p):f.estado==="porcobrar"?(confirmado(p)&&saldo(p)>0):p.estado===f.estado));
  if(q)L=L.filter(p=>(p.folio+" "+cNombre(p.clienteId)).toLowerCase().includes(q));
- L.sort((a,b)=>(a.estado==="Entregado")-(b.estado==="Entregado")||(a.entrega||"9").localeCompare(b.entrega||"9"));
+ const fin=p=>p.estado==="Entregado"||p.estado===CANC;L.sort((a,b)=>fin(a)-fin(b)||(a.entrega||"9").localeCompare(b.entrega||"9"));
  $("#lista").innerHTML=L.length?pedidosTable(L):empty("Sin resultados","No hay pedidos con este filtro.")}
 
 V.clientes=()=>`<div class="head"><div><h1>Clientes</h1><p>Contacto e historial de cada cliente.</p></div><button class="btn pri" data-act="cliente-form">Nuevo cliente</button></div>
@@ -337,7 +339,7 @@ V.calculadora=()=>{if(!CALC)calcInit();return `<div class="head"><div><h1>Calcul
 function pintaCalc(){const R=calcRes();$("#calc-res").innerHTML=`<h2 style="margin-bottom:8px">Resultado</h2><div class="rows"><div><span>Materiales</span><b>${money(R.m)}</b></div><div><span>Mano de obra</span><b>${money(R.o)}</b></div><div><span>Gastos extra</span><b>${money(R.e)}</b></div><div><span>Costo total</span><b>${money(R.costo)}</b></div><div><span>Ganancia</span><b>${money(R.gan)}</b></div>${R.u>1?`<div><span>Costo por pieza</span><b>${money(R.costoU)}</b></div>`:""}</div><div class="price-big"><span>Precio sugerido por pieza</span><b>${money(R.sug)}</b><span style="font-size:13px">Exacto: ${money(R.unit)}, redondeado a múltiplo de $5</span></div><div class="actions" style="margin-top:12px"><button class="btn pri" data-act="calc-cot">Crear cotización</button><button class="btn" data-act="calc-prod">Guardar en catálogo</button></div>`}
 
 /* finanzas */
-function ingresosDe(mes){const out=[];S.pedidos.forEach(p=>(p.pagos||[]).forEach(x=>{if(x.fecha?.startsWith(mes))out.push({fecha:x.fecha,concepto:`Pago de ${p.folio} · ${cNombre(p.clienteId)}`,categoria:x.nota||"Pago",monto:x.monto,tipo:"ingreso",pedido:p.id})}));S.movimientos.filter(m=>m.fecha?.startsWith(mes)).forEach(m=>out.push(m));return out}
+function ingresosDe(mes){const out=[];S.pedidos.forEach(p=>(p.pagos||[]).forEach(x=>{if(x.fecha?.startsWith(mes))out.push({fecha:x.fecha,concepto:`Pago de ${p.folio} · ${cNombre(p.clienteId)}`,categoria:x.nota||"Pago",monto:x.monto,tipo:"ingreso",pedido:p.id})}));S.pedidos.forEach(p=>{const d=p.devolucion;if(d?.monto>0&&d.fecha?.startsWith(mes))out.push({fecha:d.fecha,concepto:`Devolución de ${p.folio} · ${cNombre(p.clienteId)}`,categoria:"Devolución",monto:d.monto,tipo:"gasto"})});S.movimientos.filter(m=>m.fecha?.startsWith(mes)).forEach(m=>out.push(m));return out}
 function meses6(){const t=new Date();const o=[];for(let i=5;i>=0;i--){const d=new Date(t.getFullYear(),t.getMonth()-i,1);const k=`${d.getFullYear()}-${pad(d.getMonth()+1)}`;const L=ingresosDe(k);o.push({k,l:MES[d.getMonth()],ing:r2(sum(L.filter(x=>x.tipo==="ingreso"),x=>x.monto)),gas:r2(sum(L.filter(x=>x.tipo==="gasto"),x=>x.monto))})}return o}
 V.finanzas=()=>{const mes=F.finanzas.mes,L=ingresosDe(mes).sort((a,b)=>b.fecha.localeCompare(a.fecha));const ing=sum(L.filter(x=>x.tipo==="ingreso"),x=>x.monto),gas=sum(L.filter(x=>x.tipo==="gasto"),x=>x.monto);const M=meses6();
  const [y,m]=mes.split("-").map(Number);const prev=new Date(y,m-2,1),next=new Date(y,m,1);const pk=`${prev.getFullYear()}-${pad(prev.getMonth()+1)}`,nk=`${next.getFullYear()}-${pad(next.getMonth()+1)}`;
@@ -360,7 +362,16 @@ V.configuracion=()=>{const c=S.config;const sw=[["rosa","#C2255C"],["mandarina",
   <div class="grid2"><label class="f">Tarifa por hora (MXN)<input id="cfg-tarifa" name="tarifaHora" type="number" min="0" step="1" value="${c.tarifaHora}"></label><label class="f">Ganancia sobre el costo (%)<input id="cfg-margen" name="margen" type="number" min="0" step="1" value="${c.margen}"></label><label class="f">Marcar urgente con (días antes)<input id="cfg-dias" name="diasUrgente" type="number" min="0" max="60" step="1" value="${c.diasUrgente}"></label></div>
   <div><button class="btn pri">Guardar cambios</button></div>
  </form>
- <form class="card form" data-form="clave" style="max-width:640px"><h2>Cambiar contraseña</h2><div class="grid2"><label class="f">Contraseña nueva<input id="cfg-pass1" name="p1" type="password" minlength="8" required autocomplete="new-password"></label><label class="f">Repite la contraseña<input id="cfg-pass2" name="p2" type="password" minlength="8" required autocomplete="new-password"></label></div><div><button class="btn">Cambiar contraseña</button></div></form>`};
+ <form class="card form" data-form="clave" style="max-width:640px"><h2>Cambiar contraseña</h2><div class="grid2"><label class="f">Contraseña nueva<input id="cfg-pass1" name="p1" type="password" minlength="8" required autocomplete="new-password"></label><label class="f">Repite la contraseña<input id="cfg-pass2" name="p2" type="password" minlength="8" required autocomplete="new-password"></label></div><div><button class="btn">Cambiar contraseña</button></div></form>
+ <section class="card form" style="max-width:640px"><h2>Respaldo</h2><p class="sub">Descarga un archivo con clientes, pedidos, cotizaciones, catálogo, finanzas y ajustes, y guárdalo fuera del panel, por ejemplo en tu correo o en Drive. Las fotos no se incluyen.</p><p><b>Último respaldo:</b> ${c.ultimoRespaldo?fdate(c.ultimoRespaldo):"Ninguno todavía"}</p><div class="actions"><button class="btn pri" data-act="respaldo">Descargar respaldo</button><button class="btn" data-act="restaura-pick">Restaurar respaldo</button><input id="file-respaldo" type="file" accept=".json,application/json" hidden></div></section>`};
+
+/* ---------- respaldo ---------- */
+function notaRespaldo(){const u=S.config.ultimoRespaldo;if(!S.pedidos.length||(u&&diff(today(),u)<30))return "";return `<div class="note warn"><span>${u?"Tu último respaldo tiene más de 30 días.":"Aún no has descargado un respaldo de tus datos."}</span><a class="btn sm" href="#configuracion">Ir a Configuración</a></div>`}
+async function descargaRespaldo(){const out={app:"panel-tienda",version:1,fecha:new Date().toISOString(),config:{...S.config,ultimoRespaldo:today()}};COLS.forEach(c=>out[c]=S[c]);const url=URL.createObjectURL(new Blob([JSON.stringify(out,null,1)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download=`respaldo-tienda-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);await put("config","general",{...S.config,ultimoRespaldo:today()});toast("Respaldo descargado")}
+const respaldoValido=j=>j?.app==="panel-tienda"&&COLS.every(c=>Array.isArray(j[c])&&j[c].every(d=>d&&typeof d.id==="string"&&d.id));
+async function leeRespaldo(file){const input=$("#file-respaldo");let j=null;try{if(file.size<=2e7)j=JSON.parse(await file.text())}catch{}if(input)input.value="";if(!respaldoValido(j)){toast("Ese archivo no es un respaldo de este panel.");return}
+ const res=COLS.map(c=>`${j[c].length} ${c}`).join(", ");
+ ask(`Se cargará el respaldo del ${esc(String(j.fecha||"").slice(0,10))}: ${esc(res)}. Los registros que coincidan se reemplazarán con la versión del respaldo. Lo demás no se toca.`,"Restaurar",async()=>{const now=new Date().toISOString();const rows=COLS.flatMap(c=>j[c].map(({id,...data})=>({owner:uid,coleccion:c,id,data,updated_at:now})));if(j.config&&typeof j.config==="object")rows.push({owner:uid,coleccion:"config",id:"general",data:j.config,updated_at:now});for(let i=0;i<rows.length;i+=200){const {error}=await sb.from("documentos").upsert(rows.slice(i,i+200));if(error)throw error}await carga();toast("Respaldo restaurado")})}
 
 /* ---------- render ---------- */
 const AFTER={pedidos:listaPedidos,clientes:listaClientes,cotizaciones:listaCot,catalogo:listaProd,calculadora:pintaCalc};
@@ -419,12 +430,14 @@ function validaCliente(fd){const v=fd.get("clienteId");if(!v){toast("Elige un cl
 /* ---------- pedidos ---------- */
 function formPedido(id){const p=id?S.pedidos.find(x=>x.id===id):null;openModal(p?`Editar ${esc(p.folio)}`:"Nuevo pedido",`<form class="form" data-form="pedido" data-id="${esc(id||"")}">${clienteField(p?.clienteId)}${itemsEditor(p?.items)}<div class="grid2"><label class="f">Fecha de entrega<input type="date" name="entrega" value="${esc(p?.entrega||addDays(today(),7))}"></label><label class="f">Estado<select name="estado">${ESTADOS.map(e=>`<option ${(p?.estado||"Anticipo pagado")===e?"selected":""}>${e}</option>`).join("")}</select></label>${p?"":`<label class="f">Anticipo recibido (MXN)<input type="number" name="anticipo" min="0" step="0.01" placeholder="0.00"></label>`}</div><label class="f">Notas<textarea name="notas" maxlength="600">${esc(p?.notas||"")}</textarea></label><div class="m-f"><button type="button" class="btn" data-act="cerrar">Cancelar</button><button class="btn pri">Guardar pedido</button></div></form>`);updTotal()}
 function verPedido(id){const render=()=>{const p=S.pedidos.find(x=>x.id===id);if(!p){closeModal();return}const cur=ESTADOS.indexOf(p.estado);const c=cliente(p.clienteId);
- openModal(`${esc(p.folio)} · ${esc(cNombre(p.clienteId))}`,`<ol class="pipe">${ESTADOS.map((e,i)=>`<li class="${i<=cur?"done":""} ${i===cur?"cur":""}"><button data-act="estado" data-id="${esc(id)}" data-e="${esc(e)}" ${i===cur?'aria-current="step"':""}><i>${i<cur?"✓":i+1}</i>${esc(e)}</button></li>`).join("")}</ol>
+ openModal(`${esc(p.folio)} · ${esc(cNombre(p.clienteId))}`,`${p.estado===CANC?`<div class="note warn"><span>Pedido cancelado${p.motivo?": "+esc(p.motivo):""}${p.devolucion?.monto?` · Devuelto: ${money(p.devolucion.monto)}`:""}</span></div>`:`<ol class="pipe">${ESTADOS.map((e,i)=>`<li class="${i<=cur?"done":""} ${i===cur?"cur":""}"><button data-act="estado" data-id="${esc(id)}" data-e="${esc(e)}" ${i===cur?'aria-current="step"':""}><i>${i<cur?"✓":i+1}</i>${esc(e)}</button></li>`).join("")}</ol>`}
  <div class="rows">${(p.items||[]).map(i=>`<div><span>${i.cant} × ${esc(i.desc)}</span><span>${money(i.cant*i.precio)}</span></div>`).join("")}<div><b>Total</b><b>${money(p.total)}</b></div><div><span>Pagado</span><span>${money(pagado(p))}</span></div><div><b>Saldo</b><b>${money(saldo(p))}</b></div></div>
  <p><b>Entrega:</b> ${dueLabel(p)}${c?.telefono?`<br><b>Teléfono:</b> ${esc(c.telefono)}`:""}${p.notas?`<br><b>Notas:</b> ${esc(p.notas)}`:""}</p>
  ${(p.pagos||[]).length?`<div><h3 style="margin-bottom:4px">Pagos</h3><div class="rows">${p.pagos.map(x=>`<div><span>${fdate(x.fecha)} · ${esc(x.nota||"Pago")}</span><span>${money(x.monto)}</span></div>`).join("")}</div></div>`:""}
  ${saldo(p)>0?`<form class="toolbar" data-form="pago" data-id="${esc(id)}"><input name="monto" type="number" min="0.01" step="0.01" max="${saldo(p)}" required placeholder="Monto del pago" aria-label="Monto del pago" style="max-width:170px"><button class="btn pri">Registrar pago</button><button type="button" class="btn sm" data-act="liquidar" data-id="${esc(id)}">Liquidar ${money(saldo(p))}</button></form>`:""}
- <div class="m-f"><button class="btn dan" data-act="ped-del" data-id="${esc(id)}">Eliminar</button><button class="btn" data-act="ped-edit" data-id="${esc(id)}">Editar</button></div>`,render)};render()}
+ ${avisosPedido(p)}
+ <div class="m-f"><button class="btn dan" data-act="ped-del" data-id="${esc(id)}">Eliminar</button>${p.estado===CANC?`<button class="btn" data-act="ped-react" data-id="${esc(id)}">Reactivar pedido</button>`:`${p.estado==="Entregado"?"":`<button class="btn dan" data-act="ped-cancel" data-id="${esc(id)}">Cancelar pedido</button>`}<button class="btn" data-act="ped-edit" data-id="${esc(id)}">Editar</button>`}</div>`,render)};render()}
+function formCancel(id){const p=S.pedidos.find(x=>x.id===id),pg=pagado(p);openModal(`Cancelar ${esc(p.folio)}`,`<form class="form" data-form="cancelar" data-id="${esc(id)}"><p>El pedido se queda en el historial y deja de contar en ventas y saldo por cobrar.</p><label class="f">Motivo (opcional)<input name="motivo" maxlength="160"></label>${pg>0?`<label class="f">Dinero devuelto al cliente, de ${money(pg)} pagados<input name="devuelto" type="number" min="0" max="${pg}" step="0.01" placeholder="0.00"></label>`:""}<div class="m-f"><button type="button" class="btn" data-act="pedido" data-id="${esc(id)}">Volver</button><button class="btn dan">Cancelar pedido</button></div></form>`)}
 async function addPago(id,monto,nota){const p=S.pedidos.find(x=>x.id===id);const m=r2(monto);if(!(m>0)||m>saldo(p)+.001){toast(`El pago debe ser mayor a $0 y no pasar de ${money(saldo(p))}.`);return}const pagos=[...(p.pagos||[]),{monto:m,fecha:today(),nota}];const estado=p.estado==="Cotizado"?"Anticipo pagado":p.estado;await put("pedidos",id,{...p,pagos,estado});toast("Pago registrado")}
 
 /* ---------- clientes ---------- */
@@ -434,7 +447,18 @@ function formCliente(id){const c=id?cliente(id):null;openModal(c?"Editar cliente
 /* ---------- cotizaciones ---------- */
 function formCot(id,preset){const c=id?S.cotizaciones.find(x=>x.id===id):null;openModal(c?`Editar ${esc(c.folio)}`:"Nueva cotización",`<form class="form" data-form="cot" data-id="${esc(id||"")}">${clienteField(c?.clienteId)}${itemsEditor(c?.items||preset)}<label class="f">Vigente hasta<input type="date" name="vigencia" value="${esc(c?.vigencia||addDays(today(),15))}"></label><label class="f">Notas para el cliente<textarea name="notas" maxlength="600">${esc(c?.notas||"")}</textarea></label><div class="m-f"><button type="button" class="btn" data-act="cerrar">Cancelar</button><button class="btn pri">Guardar cotización</button></div></form>`);updTotal()}
 function cotTexto(c){return `Hola ${cNombre(c.clienteId)}, te comparto tu cotización ${c.folio} de ${S.config.nombre}:\n\n${(c.items||[]).map(i=>`• ${i.cant} × ${i.desc}: ${money(i.cant*i.precio)}`).join("\n")}\n\nTotal: ${money(c.total)}\nVigente hasta: ${fdate(c.vigencia)}${c.notas?`\n\n${c.notas}`:""}`}
-function waUrl(c){const raw=(cliente(c.clienteId)?.telefono||"").replace(/\D/g,"");const tel=raw.length===10?"52"+raw:raw;return `https://wa.me/${tel}?text=${encodeURIComponent(cotTexto(c))}`}
+function waTo(clienteId,texto){const raw=(cliente(clienteId)?.telefono||"").replace(/\D/g,"");const tel=raw.length===10?"52"+raw:raw;return `https://wa.me/${tel}?text=${encodeURIComponent(texto)}`}
+const waUrl=c=>waTo(c.clienteId,cotTexto(c));
+const msgListo=p=>`Hola ${cNombre(p.clienteId)}, tu pedido ${p.folio} de ${S.config.nombre} ya está listo.${saldo(p)>0?` El saldo pendiente es de ${money(saldo(p))}.`:""} ¿Cuándo te gustaría recibirlo?`;
+const msgSaldo=p=>`Hola ${cNombre(p.clienteId)}, te recuerdo que tu pedido ${p.folio} de ${S.config.nombre} tiene un saldo pendiente de ${money(saldo(p))}. ¡Gracias!`;
+function avisosPedido(p){const b=[],wa=(t,l)=>`<a class="btn" href="${esc(waTo(p.clienteId,t))}" target="_blank" rel="noopener">${l}</a>`;if(p.estado==="Listo")b.push(wa(msgListo(p),"Avisar que está listo"));if(confirmado(p)&&saldo(p)>0)b.push(wa(msgSaldo(p),"Recordar saldo"));if((p.pagos||[]).length)b.push(`<button class="btn" data-act="recibo" data-id="${esc(p.id)}">Descargar recibo</button>`);return b.length?`<div class="actions">${b.join("")}</div>`:""}
+function pdfRecibo(p){if(!window.jspdf){toast("No se pudo preparar el PDF. Revisa tu conexión.");return}const d=new window.jspdf.jsPDF({unit:"pt",format:"letter"});const L=48,Rt=564;let y=64;const brk=()=>{if(y>700){d.addPage();y=64}};
+ d.setFont("helvetica","bold");d.setFontSize(20);d.text(S.config.nombre,L,y);d.setFontSize(12);d.text(`Recibo del pedido ${p.folio}`,Rt,y,{align:"right"});y+=26;d.setFont("helvetica","normal");d.setFontSize(11);d.text(`Cliente: ${cNombre(p.clienteId)}`,L,y);d.text(`Fecha: ${fdate(today())}`,Rt,y,{align:"right"});y+=30;
+ d.setFont("helvetica","bold");d.setFontSize(10);d.text("Descripción",L,y);d.text("Cant.",370,y,{align:"right"});d.text("Precio",460,y,{align:"right"});d.text("Importe",Rt,y,{align:"right"});y+=7;d.setDrawColor(190);d.line(L,y,Rt,y);y+=16;d.setFont("helvetica","normal");
+ (p.items||[]).forEach(i=>{const l=d.splitTextToSize(i.desc,290);d.text(l,L,y);d.text(String(i.cant),370,y,{align:"right"});d.text(money(i.precio),460,y,{align:"right"});d.text(money(i.cant*i.precio),Rt,y,{align:"right"});y+=14*l.length+6;brk()});
+ d.line(L,y,Rt,y);y+=18;d.setFont("helvetica","bold");d.text("Total",460,y,{align:"right"});d.text(money(p.total),Rt,y,{align:"right"});y+=26;
+ d.text("Pagos recibidos",L,y);y+=16;d.setFont("helvetica","normal");(p.pagos||[]).forEach(x=>{d.text(`${fdate(x.fecha)} · ${x.nota||"Pago"}`,L,y);d.text(money(x.monto),Rt,y,{align:"right"});y+=16;brk()});y+=8;d.setFont("helvetica","bold");d.setFontSize(12);d.text("Saldo pendiente",460,y,{align:"right"});d.text(money(saldo(p)),Rt,y,{align:"right"});y+=30;d.setFont("helvetica","normal");d.setFontSize(9);d.text("Este recibo no es un comprobante fiscal.",L,y);
+ d.save(`Recibo-${p.folio}.pdf`);toast("Recibo descargado")}
 function verCot(id){const render=()=>{const c=S.cotizaciones.find(x=>x.id===id);if(!c){closeModal();return}const pend=c.estado==="Pendiente";
  openModal(`${esc(c.folio)} · ${esc(cNombre(c.clienteId))}`,`<div class="rows">${(c.items||[]).map(i=>`<div><span>${i.cant} × ${esc(i.desc)}</span><span>${money(i.cant*i.precio)}</span></div>`).join("")}<div><b>Total</b><b>${money(c.total)}</b></div></div><p><b>Vigente hasta:</b> ${fdate(c.vigencia)}${c.notas?`<br><b>Notas:</b> ${esc(c.notas)}`:""}</p>
  <div class="actions"><button class="btn" data-act="cot-pdf" data-id="${esc(id)}">Descargar PDF</button><a class="btn" href="${esc(waUrl(c))}" target="_blank" rel="noopener">Enviar por WhatsApp</a><button class="btn" data-act="cot-copiar" data-id="${esc(id)}">Copiar texto</button></div>
@@ -460,7 +484,7 @@ function formMov(t){openModal(t==="gasto"?"Agregar gasto":"Agregar ingreso",`<fo
 const ACT={
  cerrar:closeModal, drawer(){document.body.classList.toggle("open")},
  "nuevo-pedido":()=>formPedido(), pedido:d=>verPedido(d.id), "ped-edit":d=>formPedido(d.id),
- "ped-del":d=>ask("¿Eliminar este pedido y sus pagos? No se puede deshacer.","Eliminar pedido",async()=>{await del("pedidos",d.id);toast("Pedido eliminado")}),
+ "ped-del":d=>ask("¿Eliminar este pedido y sus pagos? No se puede deshacer. Si el pedido no se realizó, usa Cancelar pedido para conservar el historial.","Eliminar pedido",async()=>{await del("pedidos",d.id);toast("Pedido eliminado")}),
  estado:d=>guard(async()=>{const p=S.pedidos.find(x=>x.id===d.id);if(p.estado!==d.e){await put("pedidos",d.id,{...p,estado:d.e});toast(`Estado: ${d.e}`)}}),
  liquidar:d=>guard(()=>{const p=S.pedidos.find(x=>x.id===d.id);return addPago(d.id,saldo(p),"Liquidación")}),
  filtro(d,t,e){F.pedidos.estado=d.f;if(view==="pedidos"){e.preventDefault();render()}},
@@ -474,6 +498,11 @@ const ACT={
  "prod-form":d=>formProd(d.id),"prod-del":d=>ask("¿Eliminar este producto del catálogo?","Eliminar producto",async()=>{const f=S.productos.find(x=>x.id===d.id)?.foto;await del("productos",d.id);if(f)sb.storage.from("fotos").remove([f]).catch(console.error);toast("Producto eliminado")}),
  "mov-form":d=>formMov(d.t),"mov-del":d=>ask("¿Borrar este movimiento?","Borrar",async()=>{await del("movimientos",d.id);toast("Movimiento borrado")}),
  mes(d){F.finanzas.mes=d.m;render()},
+ "ped-cancel":d=>formCancel(d.id),
+ "ped-react"(d){ask("¿Reactivar este pedido? Volverá a su estado anterior y se quitará la devolución registrada, si la hay.","Reactivar",async()=>{const {devolucion,motivo,estadoPrevio,...r}=S.pedidos.find(x=>x.id===d.id);await put("pedidos",d.id,{...r,estado:estadoPrevio||"En proceso"});toast("Pedido reactivado")})},
+ recibo:d=>pdfRecibo(S.pedidos.find(x=>x.id===d.id)),
+ respaldo:()=>guard(descargaRespaldo),
+ "restaura-pick"(){$("#file-respaldo").click()},
  salir:()=>guard(async()=>{await sb.auth.signOut();location.hash=""}),
  reintentar:()=>guard(async()=>{failed=false;ready=false;schedule();await cargaSegura()}),
  "mat-add"(){CALC.mat.push({n:"",c:"",q:1});$("#mats").innerHTML=CALC.mat.map(matRow).join("");pintaCalc()},
@@ -489,6 +518,7 @@ document.addEventListener("input",e=>{const t=e.target;
  if(t.dataset.m){CALC.mat[+t.dataset.i][t.dataset.m]=t.value;pintaCalc();return}
  if(t.closest("#items"))updTotal()});
 document.addEventListener("change",e=>{const t=e.target;
+ if(t.id==="file-respaldo"&&t.files[0]){leeRespaldo(t.files[0]);return}
  if(t.id==="sel-cliente"){const b=$("#cli-nuevo");b.hidden=t.value!=="__nuevo"}
  if(t.classList.contains("it-prod")&&t.value){const p=S.productos.find(x=>x.id===t.value),r=t.closest(".item-row");$(".it-desc",r).value=p.nombre;$(".it-precio",r).value=p.precio;updTotal()}});
 
@@ -502,6 +532,7 @@ const FORM={
  async conv(fd,f,id){const c=S.cotizaciones.find(x=>x.id===id),anti=r2(fd.get("anticipo"));if(anti>c.total){toast("El anticipo no puede ser mayor al total.");return}const pid=await put("pedidos",null,{folio:folio("P",S.pedidos),clienteId:c.clienteId,items:c.items,total:c.total,entrega:fd.get("entrega"),estado:anti>0?"Anticipo pagado":"Cotizado",notas:c.notas||"",fecha:today(),pagos:anti>0?[{monto:anti,fecha:today(),nota:"Anticipo"}]:[],cotizacionId:id});await put("cotizaciones",id,{...c,estado:"Convertida",pedidoId:pid});closeModal();toast("Pedido creado");location.hash="pedidos"},
  async prod(fd,f,id){const old=id?S.productos.find(x=>x.id===id):{};const foto=await subeFoto(fd.get("foto"));await put("productos",id||null,{...old,nombre:fd.get("nombre").trim(),categoria:fd.get("categoria").trim(),precio:r2(fd.get("precio")),costo:r2(fd.get("costo")),disponible:fd.get("disponible")==="on",foto:foto||old.foto||""});closeModal();toast("Producto guardado")},
  async mov(fd,f){await put("movimientos",null,{tipo:f.dataset.t,concepto:fd.get("concepto").trim(),monto:r2(fd.get("monto")),fecha:fd.get("fecha"),categoria:fd.get("categoria").trim()});closeModal();toast("Movimiento guardado")},
+ async cancelar(fd,f,id){const p=S.pedidos.find(x=>x.id===id),dev=r2(fd.get("devuelto"));if(dev>pagado(p)){toast(`No puedes devolver más de ${money(pagado(p))}.`);return}await put("pedidos",id,{...p,estado:CANC,estadoPrevio:p.estado,motivo:(fd.get("motivo")||"").trim(),devolucion:dev>0?{monto:dev,fecha:today()}:null});verPedido(id);toast("Pedido cancelado")},
  async login(fd){const err=$("#login-err");err.hidden=true;const {data,error}=await sb.auth.signInWithPassword({email:fd.get("email").trim(),password:fd.get("pass")});if(error){err.textContent=error.status===400?"El correo o la contraseña no coinciden.":"No se pudo entrar. Revisa tu conexión a internet.";err.hidden=false;return}$("#login-pass").value="";await entrar(data.user)},
  async clave(fd,f){if(fd.get("p1")!==fd.get("p2")){toast("Las contraseñas no coinciden.");return}const {error}=await sb.auth.updateUser({password:fd.get("p1")});if(error){toast(error.code==="same_password"?"La contraseña nueva debe ser distinta a la actual.":"No se pudo cambiar la contraseña. Inténtalo de nuevo.");return}f.reset();toast("Contraseña actualizada")},
  async config(fd){const logo=await subeFoto(fd.get("logo"));const n={...S.config,nombre:fd.get("nombre").trim()||DEF.nombre,duena:fd.get("duena").trim(),lema:fd.get("lema").trim(),acento:fd.get("acento")||"rosa",tarifaHora:r2(fd.get("tarifaHora")),margen:r2(fd.get("margen")),diasUrgente:Math.max(0,Math.floor(+fd.get("diasUrgente")||0)),logo:logo||S.config.logo||""};await put("config","general",n);CALC=null;toast("Cambios guardados")}
