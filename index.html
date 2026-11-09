@@ -155,6 +155,19 @@ dialog::backdrop{background:rgba(20,16,36,.55)}
 .login-card .brand{padding:0}
 .login-err{color:var(--bad);font-weight:600;font-size:14px}
 .logout{background:none;border:0;padding:0;margin-top:8px;color:var(--muted);font:600 13px var(--f-body);cursor:pointer;text-decoration:underline}
+.spin{display:inline-block;width:30px;height:30px;flex:none;border:3px dashed var(--accent);border-radius:50%;animation:girar 1.5s linear infinite}
+.spin.sm{width:14px;height:14px;border-width:2px;border-color:currentColor}
+.empty .spin{display:block;margin:0 auto 10px}
+.boot{position:fixed;inset:0;display:grid;place-items:center}
+@keyframes girar{to{transform:rotate(360deg)}}
+.switch-row{display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer}
+.switch{position:relative;display:inline-block;width:44px;height:26px;flex:none}
+.switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
+.switch i{position:absolute;inset:0;border-radius:99px;background:var(--muted);transition:background .15s;pointer-events:none}
+.switch i::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--surface);transition:transform .15s}
+.switch input:checked+i{background:var(--accent)}
+.switch input:checked+i::after{transform:translateX(18px)}
+.switch input:focus-visible+i{outline:2px solid var(--accent);outline-offset:2px}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--t-ink);color:var(--on-tile);padding:10px 16px;border-radius:10px;font-weight:600;z-index:50;max-width:calc(100vw - 32px)}
 @media (max-width:980px){.two,.calc{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:820px){
@@ -180,10 +193,11 @@ dialog::backdrop{background:rgba(20,16,36,.55)}
   .mat-row{grid-template-columns:minmax(0,1fr) 84px 60px 32px}
   .pipe button{font-size:10.5px}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.spin{animation:none}}
 </style>
 </head>
 <body>
+<div id="boot" class="boot"><span class="spin" role="status" aria-label="Cargando"></span></div>
 <div id="login" hidden>
   <form class="login-card" data-form="login">
     <div class="brand"><div class="brand-mark" id="login-mark"></div><b id="login-name">Mi Tienda</b></div>
@@ -379,7 +393,7 @@ function shell(){const c=S.config;document.documentElement.dataset.accent=c.acen
 function render(){shell();if(modalRefresh&&$("#modal").open)modalRefresh();
  if(view==="calculadora"&&calcMounted)return;
  const main=$("#main");
- if(!ready){main.innerHTML=`<div class="wrap">${failed?`<div class="empty"><b>No se pudieron cargar tus datos</b>Revisa tu conexión a internet.<div style="margin-top:12px"><button class="btn" data-act="reintentar">Intentar de nuevo</button></div></div>`:empty("Cargando tus datos","Tus pedidos y clientes aparecerán aquí en unos segundos.")}</div>`;return}
+ if(!ready){main.innerHTML=`<div class="wrap">${failed?`<div class="empty"><b>No se pudieron cargar tus datos</b>Revisa tu conexión a internet.<div style="margin-top:12px"><button class="btn" data-act="reintentar">Intentar de nuevo</button></div></div>`:empty('<span class="spin"></span>Cargando tus datos',"Tus pedidos y clientes aparecerán aquí en unos segundos.")}</div>`;return}
  const active=document.activeElement?.dataset?.q; const pos=active?document.activeElement.selectionStart:0;
  main.innerHTML=`<div class="wrap">${V[view]()}</div>`;AFTER[view]?.();if(view==="calculadora")calcMounted=true;drawCharts();
  if(active){const el=$(`[data-q="${active}"]`);if(el){el.focus();try{el.setSelectionRange(pos,pos)}catch{}}}}
@@ -414,8 +428,9 @@ function drawMes(){const el=$("#chart-mes");if(!el)return;const W=el.clientWidth
 function openModal(title,body,refresh=null){const m=$("#modal");m.innerHTML=`<div class="m-h"><h2>${title}</h2><button class="icon-btn" data-act="cerrar" aria-label="Cerrar">${ic("x")}</button></div><div class="m-b">${body}</div>`;if(!m.open)m.showModal();modalRefresh=refresh}
 function closeModal(){const m=$("#modal");modalRefresh=null;if(m.open)m.close()}
 $("#modal").addEventListener("close",()=>modalRefresh=null);
-function ask(msg,label,fn){openModal("Confirmar",`<p>${msg}</p><div class="m-f"><button class="btn" data-act="cerrar">Cancelar</button><button class="btn dan" id="ok-ask">${label}</button></div>`);$("#ok-ask").onclick=()=>guard(async()=>{await fn();closeModal()})}
-async function guard(fn){if(busy)return;busy=true;try{await fn()}catch(e){console.error(e);toast(errMsg(e))}finally{busy=false}}
+function ask(msg,label,fn){openModal("Confirmar",`<p>${msg}</p><div class="m-f"><button class="btn" data-act="cerrar">Cancelar</button><button class="btn dan" id="ok-ask">${label}</button></div>`);$("#ok-ask").onclick=()=>guard(async()=>{await fn();closeModal()},$("#ok-ask"))}
+function cargando(b){const s=document.createElement("span");s.className="spin sm";s.setAttribute("aria-hidden","true");b.disabled=true;b.setAttribute("aria-busy","true");b.prepend(s);return()=>{s.remove();b.disabled=false;b.removeAttribute("aria-busy")}}
+async function guard(fn,btn){if(busy)return;busy=true;const fin=btn?cargando(btn):null;try{await fn()}catch(e){console.error(e);toast(errMsg(e))}finally{busy=false;fin?.()}}
 
 /* partes de formularios */
 function clienteField(sel){const L=[...S.clientes].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));return `<label class="f">Cliente<select name="clienteId" id="sel-cliente" required>${sel?"":'<option value="">Elige un cliente</option>'}${L.map(c=>`<option value="${esc(c.id)}" ${c.id===sel?"selected":""}>${esc(c.nombre)}</option>`).join("")}<option value="__nuevo">Cliente nuevo…</option></select></label><div class="grid2" id="cli-nuevo" hidden><label class="f">Nombre del cliente<input name="cliNombre" maxlength="80"></label><label class="f">WhatsApp<input name="cliTel" inputmode="tel" maxlength="20"></label></div>`}
@@ -473,7 +488,7 @@ async function pdfCot(c){if(!window.jspdf){toast("No se pudo preparar el PDF. Re
  d.save(`Cotizacion-${c.folio}.pdf`);toast("PDF descargado")}
 
 /* ---------- catálogo ---------- */
-function formProd(id,preset={}){const p=id?S.productos.find(x=>x.id===id):preset;const cats=[...new Set(S.productos.map(x=>x.categoria).filter(Boolean))];openModal(id?"Editar producto":"Nuevo producto",`<form class="form" data-form="prod" data-id="${esc(id||"")}"><label class="f">Nombre<input name="nombre" required maxlength="80" value="${esc(p?.nombre||"")}"></label><label class="f">Categoría<input name="categoria" list="cats" maxlength="40" value="${esc(p?.categoria||"")}"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join("")}</datalist></label><div class="grid2"><label class="f">Precio de venta (MXN)<input name="precio" type="number" min="0" step="0.01" required value="${p?.precio??""}"></label><label class="f">Costo (MXN)<input name="costo" type="number" min="0" step="0.01" value="${p?.costo??""}"></label></div><label class="f">Foto<input name="foto" type="file" accept="image/png,image/jpeg,image/webp"></label><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" name="disponible" style="width:auto" ${p?.disponible===false?"":"checked"}>Disponible para vender</label><div class="m-f">${id?`<button type="button" class="btn dan" data-act="prod-del" data-id="${esc(id)}">Eliminar</button>`:""}<button type="button" class="btn" data-act="cerrar">Cancelar</button><button class="btn pri">Guardar producto</button></div></form>`)}
+function formProd(id,preset={}){const p=id?S.productos.find(x=>x.id===id):preset;const cats=[...new Set(S.productos.map(x=>x.categoria).filter(Boolean))];openModal(id?"Editar producto":"Nuevo producto",`<form class="form" data-form="prod" data-id="${esc(id||"")}"><label class="f">Nombre<input name="nombre" required maxlength="80" value="${esc(p?.nombre||"")}"></label><label class="f">Categoría<input name="categoria" list="cats" maxlength="40" value="${esc(p?.categoria||"")}"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join("")}</datalist></label><div class="grid2"><label class="f">Precio de venta (MXN)<input name="precio" type="number" min="0" step="0.01" required value="${p?.precio??""}"></label><label class="f">Costo (MXN)<input name="costo" type="number" min="0" step="0.01" value="${p?.costo??""}"></label></div><label class="f">Foto<input name="foto" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="switch-row"><span class="switch"><input type="checkbox" role="switch" name="disponible" ${p?.disponible===false?"":"checked"}><i></i></span>Disponible para vender</label><div class="m-f">${id?`<button type="button" class="btn dan" data-act="prod-del" data-id="${esc(id)}">Eliminar</button>`:""}<button type="button" class="btn" data-act="cerrar">Cancelar</button><button class="btn pri">Guardar producto</button></div></form>`)}
 function comprime(file,max=1000){return new Promise((ok,no)=>{const u=URL.createObjectURL(file),im=new Image();im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);g.drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?ok(b):no(new Error("img")),"image/jpeg",.84)};im.onerror=()=>no(new Error("img"));im.src=u})}
 async function subeFoto(file){if(!file||!file.size)return null;try{const blob=await comprime(file),path=`${uid}/${newId()}.jpg`;const {error}=await sb.storage.from("fotos").upload(path,blob,{contentType:"image/jpeg"});if(error)throw error;return path}catch(e){console.error(e);toast("No se pudo subir la imagen. Prueba con otra foto.");return null}}
 
@@ -486,7 +501,7 @@ const ACT={
  "nuevo-pedido":()=>formPedido(), pedido:d=>verPedido(d.id), "ped-edit":d=>formPedido(d.id),
  "ped-del":d=>ask("¿Eliminar este pedido y sus pagos? No se puede deshacer. Si el pedido no se realizó, usa Cancelar pedido para conservar el historial.","Eliminar pedido",async()=>{await del("pedidos",d.id);toast("Pedido eliminado")}),
  estado:d=>guard(async()=>{const p=S.pedidos.find(x=>x.id===d.id);if(p.estado!==d.e){await put("pedidos",d.id,{...p,estado:d.e});toast(`Estado: ${d.e}`)}}),
- liquidar:d=>guard(()=>{const p=S.pedidos.find(x=>x.id===d.id);return addPago(d.id,saldo(p),"Liquidación")}),
+ liquidar:(d,t)=>guard(()=>{const p=S.pedidos.find(x=>x.id===d.id);return addPago(d.id,saldo(p),"Liquidación")},t),
  filtro(d,t,e){F.pedidos.estado=d.f;if(view==="pedidos"){e.preventDefault();render()}},
  "item-add"(){$("#items").insertAdjacentHTML("beforeend",itemRow())}, "item-del"(d,t){if($$("#items .item-row").length>1)t.closest(".item-row").remove();updTotal()},
  cliente:d=>verCliente(d.id),"cliente-form":d=>formCliente(d.id),
@@ -501,7 +516,7 @@ const ACT={
  "ped-cancel":d=>formCancel(d.id),
  "ped-react"(d){ask("¿Reactivar este pedido? Volverá a su estado anterior y se quitará la devolución registrada, si la hay.","Reactivar",async()=>{const {devolucion,motivo,estadoPrevio,...r}=S.pedidos.find(x=>x.id===d.id);await put("pedidos",d.id,{...r,estado:estadoPrevio||"En proceso"});toast("Pedido reactivado")})},
  recibo:d=>pdfRecibo(S.pedidos.find(x=>x.id===d.id)),
- respaldo:()=>guard(descargaRespaldo),
+ respaldo:(d,t)=>guard(descargaRespaldo,t),
  "restaura-pick"(){$("#file-respaldo").click()},
  salir:()=>guard(async()=>{await sb.auth.signOut();location.hash=""}),
  reintentar:()=>guard(async()=>{failed=false;ready=false;schedule();await cargaSegura()}),
@@ -537,7 +552,7 @@ const FORM={
  async clave(fd,f){if(fd.get("p1")!==fd.get("p2")){toast("Las contraseñas no coinciden.");return}const {error}=await sb.auth.updateUser({password:fd.get("p1")});if(error){toast(error.code==="same_password"?"La contraseña nueva debe ser distinta a la actual.":"No se pudo cambiar la contraseña. Inténtalo de nuevo.");return}f.reset();toast("Contraseña actualizada")},
  async config(fd){const logo=await subeFoto(fd.get("logo"));const n={...S.config,nombre:fd.get("nombre").trim()||DEF.nombre,duena:fd.get("duena").trim(),lema:fd.get("lema").trim(),acento:fd.get("acento")||"rosa",tarifaHora:r2(fd.get("tarifaHora")),margen:r2(fd.get("margen")),diasUrgente:Math.max(0,Math.floor(+fd.get("diasUrgente")||0)),logo:logo||S.config.logo||""};await put("config","general",n);CALC=null;toast("Cambios guardados")}
 };
-document.addEventListener("submit",e=>{const f=e.target.closest("[data-form]");if(!f)return;e.preventDefault();const fd=new FormData(f);guard(()=>FORM[f.dataset.form](fd,f,f.dataset.id||null))});
+document.addEventListener("submit",e=>{const f=e.target.closest("[data-form]");if(!f)return;e.preventDefault();const fd=new FormData(f);guard(()=>FORM[f.dataset.form](fd,f,f.dataset.id||null),e.submitter||$("button:not([type=button])",f))});
 
 /* ---------- arranque ---------- */
 function setConn(st,txt){const c=$("#conn");c.className="conn "+st;$("span",c).textContent=txt}
@@ -546,9 +561,9 @@ async function carga(){const docs=[];for(let a=0;;a+=1000){const {data,error}=aw
  for(const d of docs){if(d.coleccion==="config")S.config={...DEF,...d.data};else if(S[d.coleccion])S[d.coleccion].push({...d.data,id:d.id})}
  ready=true;failed=false;ultimaCarga=Date.now();setConn("ok","Guardado en línea");schedule()}
 async function cargaSegura(){try{await carga()}catch(e){console.error(e);failed=true;setConn("bad","Sin conexión");schedule()}}
-async function entrar(user){uid=user.id;$("#login").hidden=true;$("#app").hidden=false;setConn("","Cargando…");route();await cargaSegura()}
-function pideLogin(){uid=null;ready=false;failed=false;COLS.forEach(c=>S[c]=[]);S.config={...DEF};CALC=null;closeModal();$("#app").hidden=true;$("#login").hidden=false}
-function bloqueaLogin(msg){$("#login").hidden=false;const e=$("#login-err");e.textContent=msg;e.hidden=false;$('#login button').disabled=true}
+async function entrar(user){$("#boot").hidden=true;uid=user.id;$("#login").hidden=true;$("#app").hidden=false;setConn("","Cargando…");route();await cargaSegura()}
+function pideLogin(){$("#boot").hidden=true;uid=null;ready=false;failed=false;COLS.forEach(c=>S[c]=[]);S.config={...DEF};CALC=null;closeModal();$("#app").hidden=true;$("#login").hidden=false}
+function bloqueaLogin(msg){$("#boot").hidden=true;$("#login").hidden=false;const e=$("#login-err");e.textContent=msg;e.hidden=false;$('#login button').disabled=true}
 async function boot(){$("#login-mark").innerHTML=ic("spool");$("#login-name").textContent="Panel de la tienda";
  const cfg=window.CONFIG;if(!cfg||!cfg.url||cfg.url.includes("PEGA_AQUI")){bloqueaLogin("Falta conectar la base de datos. Sigue los pasos del archivo README.");return}
  if(!window.supabase){bloqueaLogin("No se pudo cargar la página. Revisa tu conexión a internet y recarga.");return}
